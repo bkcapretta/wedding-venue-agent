@@ -38,14 +38,21 @@ function ChatPageInner() {
     }
   }, [location, radiusKm, sendMessage]);
 
-  // Extract venues from tool results in messages
+  // Extract venues from tool results in messages.
+  // Within a single assistant message, tool results accumulate (supports
+  // the initial multi-query pattern like "wedding venues" + "event spaces").
+  // Across different assistant messages, the latest message's results replace
+  // the previous set — each refinement from the user triggers a fresh search.
   const venues = useMemo(() => {
-    const venueMap = new Map<string, Venue>();
+    let venueMap = new Map<string, Venue>();
+    let currentMsgId: string | null = null;
 
     for (const msg of messages) {
+      // Track whether this message has any venue tool results
+      let msgHasVenues = false;
+      const msgVenueMap = new Map<string, Venue>();
+
       for (const part of msg.parts) {
-        // In AI SDK v6, tool parts have type like "tool-searchVenues"
-        // and states: "input-streaming" | "input-available" | "output-available" | "done" etc.
         if (
           typeof part.type === "string" &&
           part.type.startsWith("tool-") &&
@@ -56,9 +63,23 @@ function ChatPageInner() {
           typeof part.output === "object" &&
           "venues" in (part.output as Record<string, unknown>)
         ) {
+          msgHasVenues = true;
           const result = part.output as { venues: Venue[] };
           for (const venue of result.venues) {
-            venueMap.set(venue.placeId, venue);
+            msgVenueMap.set(venue.placeId, venue);
+          }
+        }
+      }
+
+      if (msgHasVenues) {
+        if (msg.id !== currentMsgId) {
+          // New assistant message with venues → replace the set
+          venueMap = msgVenueMap;
+          currentMsgId = msg.id;
+        } else {
+          // Same message, additional tool call → accumulate
+          for (const [id, venue] of msgVenueMap) {
+            venueMap.set(id, venue);
           }
         }
       }

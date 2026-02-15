@@ -32,7 +32,7 @@ export function VenuePanel({ venues, center }: VenuePanelProps) {
       </div>
 
       {/* Venue list - bottom 60% */}
-      <div className="h-[60%] overflow-hidden">
+      <div className="h-[60%] overflow-y-auto">
         <VenueList
           venues={venues}
           selectedVenueId={selectedVenueId}

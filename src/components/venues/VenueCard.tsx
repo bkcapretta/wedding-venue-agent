@@ -42,6 +42,9 @@ export function VenueCard({ venue, isSelected, onSelect }: VenueCardProps) {
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-gray-900 truncate">{venue.name}</h3>
           <p className="text-xs text-gray-500 truncate mt-0.5">{venue.address}</p>
+          {venue.description && (
+            <p className="text-xs text-gray-600 mt-1 line-clamp-2">{venue.description}</p>
+          )}
 
           <div className="flex items-center gap-3 mt-2 text-xs">
             {venue.rating != null && (

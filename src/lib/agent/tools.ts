@@ -15,10 +15,13 @@ export function createTools(context?: SearchContext) {
   return {
     searchVenues: tool({
       description:
-        "Search for wedding venues, event spaces, or other venue types near a location. " +
-        "Use different queries to find traditional and non-traditional venues. " +
-        'Examples: "wedding venues", "barns for events", "vineyard wedding", "rooftop event space", ' +
-        '"restaurant private dining", "art gallery event rental", "brewery wedding".',
+        "Search for wedding venues near a location using Google Places. This is the PRIMARY tool for refining results " +
+        "based on user preferences. Google understands natural language queries, so include the user's specific desires " +
+        "directly in the query. " +
+        'Examples: "wedding venues for 100 guests", "all-inclusive wedding venue", ' +
+        '"outdoor ceremony indoor reception venue", "affordable wedding venue under 10000", ' +
+        '"vineyard wedding with catering", "rooftop event space with views", ' +
+        '"intimate wedding venue 50 guests", "rustic barn wedding all inclusive".',
       inputSchema: z.object({
         query: z.string().describe("Search query for the type of venue to find"),
         radiusKm: z
