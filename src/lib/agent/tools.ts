@@ -4,13 +4,14 @@ import { searchPlaces } from "@/lib/google-places";
 import { prisma } from "@/lib/prisma";
 import { Venue, SearchContext } from "@/lib/types";
 
-const KM_PER_MILE = 1.60934;
+export const KM_PER_MILE = 1.60934;
 const KM_PER_DEG_LAT = 111.32;
 const MAX_VENUES = 20;
 
 /** Slim venue summary for Claude — strips photoRefs, types, lat/lng, etc. */
 function summarizeVenue(v: Venue) {
   return {
+    placeId: v.placeId,
     name: v.name,
     rating: v.rating,
     priceLevel: v.priceLevel,
@@ -19,7 +20,7 @@ function summarizeVenue(v: Venue) {
 }
 
 /** Find cached venues within a bounding box approximation of the search radius. */
-async function findNearbyVenues(lat: number, lng: number, radiusKm: number): Promise<Venue[]> {
+export async function findNearbyVenues(lat: number, lng: number, radiusKm: number): Promise<Venue[]> {
   const dLat = radiusKm / KM_PER_DEG_LAT;
   const dLng = radiusKm / (KM_PER_DEG_LAT * Math.cos(lat * (Math.PI / 180)));
 
@@ -49,7 +50,7 @@ export function createTools(context?: SearchContext) {
           .optional()
           .describe("Default search radius in miles"),
       }),
-      execute: async ({ query, radius }): Promise<{ venues: Venue[]; summary: ReturnType<typeof summarizeVenue>[]; count: number }> => {
+      execute: async ({ query, radius }): Promise<{ summary: ReturnType<typeof summarizeVenue>[]; count: number }> => {
         const radiusMiles = radius ?? context?.radius ?? 25;
         const radiusKm = radiusMiles * KM_PER_MILE;
         const lat = context?.lat ?? 0;
@@ -60,7 +61,7 @@ export function createTools(context?: SearchContext) {
           const cached = await findNearbyVenues(lat, lng, radiusKm);
 
           if (cached.length > 0) {
-            return { venues: cached, summary: cached.map(summarizeVenue), count: cached.length };
+            return { summary: cached.map(summarizeVenue), count: cached.length };
           }
 
           // Cache miss — call Google Places and store results
@@ -79,16 +80,17 @@ export function createTools(context?: SearchContext) {
             });
           }
 
-          return { venues, summary: venues.map(summarizeVenue), count: venues.length };
+          return { summary: venues.map(summarizeVenue), count: venues.length };
         } catch (error) {
-          return { venues: [], summary: [], count: 0 };
+          return { summary: [], count: 0 };
         }
       },
     }),
     filterVenues: tool({
       description:
-        "Filter venues in the current search area by structured criteria. " +
-        "Use this to narrow down results without calling Google Places again.",
+        "Filter venues in the current search area by using structured criteria defined " +
+        "by the user. Use this to narrow down the current list of results without calling " + 
+        "Google Places again.",
       inputSchema: z.object({
         minRating: z
           .number()
@@ -117,7 +119,7 @@ export function createTools(context?: SearchContext) {
         minCapacity,
         venueTypes,
         nameOrDescription,
-      }): Promise<{ venues: Venue[]; summary: ReturnType<typeof summarizeVenue>[]; count: number }> => {
+      }): Promise<{ summary: ReturnType<typeof summarizeVenue>[]; count: number }> => {
         try {
           const radiusKm = (context?.radius ?? 25) * KM_PER_MILE;
           const lat = context?.lat ?? 0;
@@ -143,28 +145,28 @@ export function createTools(context?: SearchContext) {
             );
           }
 
-          return { venues, summary: venues.map(summarizeVenue), count: venues.length };
+          return { summary: venues.map(summarizeVenue), count: venues.length };
         } catch (error) {
-          return { venues: [], summary: [], count: 0 };
+          return { summary: [], count: 0 };
         }
       },
     }),
 
     getVenueDetails: tool({
       description:
-        "Get detailed information about a specific venue by its ID or place ID.",
+        "Get detailed information about a specific venue by its name, ID, or place ID.",
       inputSchema: z.object({
         venueId: z.string().describe("The venue ID or Google Place ID to look up"),
       }),
-      execute: async ({ venueId }): Promise<{ venue: Venue | null }> => {
+      execute: async ({ venueId }): Promise<{ summary: ReturnType<typeof summarizeVenue> | null }> => {
         try {
           const venue = await prisma.venue.findFirst({
             where: { OR: [{ id: venueId }, { placeId: venueId }] },
           }) as Venue | null;
 
-          return { venue };
+          return { summary: venue ? summarizeVenue(venue) : null };
         } catch {
-          return { venue: null };
+          return { summary: null };
         }
       },
     }),

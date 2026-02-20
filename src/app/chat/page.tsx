@@ -2,11 +2,34 @@
 
 import { useSearchParams } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
-import { useEffect, useMemo, useRef, Suspense } from "react";
+import { DefaultChatTransport, UIMessage } from "ai";
+import { useEffect, useRef, useState, Suspense } from "react";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { VenuePanel } from "@/components/venues/VenuePanel";
 import { Venue } from "@/lib/types";
+
+/** Extract placeIds from the most recent tool result that has a summary array. */
+function extractPlaceIds(messages: UIMessage[]): string[] | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    for (const part of messages[i].parts) {
+      if (
+        part.type.startsWith("tool-") &&
+        "state" in part &&
+        part.state === "output-available" &&
+        "output" in part &&
+        part.output &&
+        typeof part.output === "object" &&
+        "summary" in (part.output as Record<string, unknown>)
+      ) {
+        const summary = (part.output as { summary: { placeId: string }[] }).summary;
+        if (Array.isArray(summary)) {
+          return summary.map((s) => s.placeId).filter(Boolean);
+        }
+      }
+    }
+  }
+  return null;
+}
 
 function ChatPageInner() {
   const searchParams = useSearchParams();
@@ -16,70 +39,51 @@ function ChatPageInner() {
   const location = searchParams.get("location") ?? "";
 
   const hasSentInitial = useRef(false);
+  const [venues, setVenues] = useState<Venue[]>([]);
 
   const transportRef = useRef(
-    // whenever we need to talk to the AI, make an HTTP POST to /api/chat
     new DefaultChatTransport({
-      api: "/api/chat", // where to send requests
-      body: { searchContext: { lat, lng, radius, location } }, // extra data sent w/ every request (e.g. for tools)
+      api: "/api/chat",
+      body: { searchContext: { lat, lng, radius, location } },
     })
   );
 
-  // messages: the full conversation history
-  // status: "idle" | "submitting" | "streaming"
-  // sendMessage: function to send a new message (takes { text: string })
   const { messages, status, sendMessage } = useChat({
     transport: transportRef.current,
   });
+
+  // When Claude finishes responding, fetch the relevant venues from Postgres.
+  // If tool results contain placeIds, fetch exactly those. Otherwise fetch all nearby.
+  const lastMessageCount = useRef(0);
+  useEffect(() => {
+    if (status === "ready" && messages.length > lastMessageCount.current) {
+      lastMessageCount.current = messages.length;
+
+      const placeIds = extractPlaceIds(messages);
+      const url = placeIds && placeIds.length > 0
+        ? `/api/venues/nearby?placeIds=${placeIds.join(",")}`
+        : `/api/venues/nearby?lat=${lat}&lng=${lng}&radius=${radius}`;
+
+      fetch(url)
+        .then((res) => res.json())
+        .then((data: Venue[]) => {
+          setVenues(data.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0)));
+        })
+        .catch(() => {});
+    }
+  }, [status, messages, lat, lng, radius]);
 
   // Auto-send initial search message
   useEffect(() => {
     if (!hasSentInitial.current && location) {
       hasSentInitial.current = true;
-      // transport makes a `fetch` request under the hood
       sendMessage({
         text: `I'm looking for wedding venues near ${location} within ${radius} miles. Please search for wedding venues in this area.`,
       });
     }
   }, [location, radius, sendMessage]);
 
-  // Extract venues from tool results. Within a message, tool results accumulate
-  // (supports multi-query). Across messages, the latest replaces the previous set.
-  const venues = useMemo(() => {
-    let venueMap = new Map<string, Venue>();
-    let currentMsgId: string | null = null;
-
-    for (const msg of messages) {
-      const msgVenues = new Map<string, Venue>();
-
-      for (const part of msg.parts) {
-        if (
-          part.type.startsWith("tool-") &&
-          "output" in part &&
-          part.output &&
-          typeof part.output === "object" &&
-          "venues" in (part.output as Record<string, unknown>)
-        ) {
-          for (const venue of (part.output as { venues: Venue[] }).venues) {
-            msgVenues.set(venue.placeId, venue);
-          }
-        }
-      }
-
-      if (msgVenues.size > 0) {
-        venueMap = msg.id === currentMsgId
-          ? new Map([...venueMap, ...msgVenues])
-          : msgVenues;
-        currentMsgId = msg.id;
-      }
-    }
-
-    return Array.from(venueMap.values()).sort(
-      (a, b) => (b.rating ?? 0) - (a.rating ?? 0)
-    );
-  }, [messages]);
-
-  const isLoading = status === "submitted" || status === "streaming";
+  const isLoading = status !== "ready";
 
   const handleSend = (text: string) => {
     sendMessage({ text });
