@@ -8,6 +8,16 @@ const KM_PER_MILE = 1.60934;
 const KM_PER_DEG_LAT = 111.32;
 const MAX_VENUES = 20;
 
+/** Slim venue summary for Claude — strips photoRefs, types, lat/lng, etc. */
+function summarizeVenue(v: Venue) {
+  return {
+    name: v.name,
+    rating: v.rating,
+    priceLevel: v.priceLevel,
+    website: v.website,
+  };
+}
+
 /** Find cached venues within a bounding box approximation of the search radius. */
 async function findNearbyVenues(lat: number, lng: number, radiusKm: number): Promise<Venue[]> {
   const dLat = radiusKm / KM_PER_DEG_LAT;
@@ -39,7 +49,7 @@ export function createTools(context?: SearchContext) {
           .optional()
           .describe("Default search radius in miles"),
       }),
-      execute: async ({ query, radius }): Promise<{ venues: Venue[]; count: number }> => {
+      execute: async ({ query, radius }): Promise<{ venues: Venue[]; summary: ReturnType<typeof summarizeVenue>[]; count: number }> => {
         const radiusMiles = radius ?? context?.radius ?? 25;
         const radiusKm = radiusMiles * KM_PER_MILE;
         const lat = context?.lat ?? 0;
@@ -50,7 +60,7 @@ export function createTools(context?: SearchContext) {
           const cached = await findNearbyVenues(lat, lng, radiusKm);
 
           if (cached.length > 0) {
-            return { venues: cached, count: cached.length };
+            return { venues: cached, summary: cached.map(summarizeVenue), count: cached.length };
           }
 
           // Cache miss — call Google Places and store results
@@ -69,9 +79,9 @@ export function createTools(context?: SearchContext) {
             });
           }
 
-          return { venues, count: venues.length };
+          return { venues, summary: venues.map(summarizeVenue), count: venues.length };
         } catch (error) {
-          return { venues: [], count: 0 };
+          return { venues: [], summary: [], count: 0 };
         }
       },
     }),
@@ -107,7 +117,7 @@ export function createTools(context?: SearchContext) {
         minCapacity,
         venueTypes,
         nameOrDescription,
-      }): Promise<{ venues: Venue[]; count: number }> => {
+      }): Promise<{ venues: Venue[]; summary: ReturnType<typeof summarizeVenue>[]; count: number }> => {
         try {
           const radiusKm = (context?.radius ?? 25) * KM_PER_MILE;
           const lat = context?.lat ?? 0;
@@ -133,9 +143,9 @@ export function createTools(context?: SearchContext) {
             );
           }
 
-          return { venues, count: venues.length };
+          return { venues, summary: venues.map(summarizeVenue), count: venues.length };
         } catch (error) {
-          return { venues: [], count: 0 };
+          return { venues: [], summary: [], count: 0 };
         }
       },
     }),
