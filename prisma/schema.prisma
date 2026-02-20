@@ -1,12 +1,10 @@
 generator client {
-  provider        = "prisma-client"
-  output          = "../src/generated/prisma"
-  previewFeatures = ["postgresqlExtensions"]
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
-  provider   = "postgresql"
-  extensions = [postgis]
+  provider = "postgresql"
 }
 
 model Venue {
@@ -27,56 +25,5 @@ model Venue {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  searchResults SearchResult[]
-
   @@map("venues")
-}
-
-model Search {
-  id        String   @id @default(cuid())
-  query     String
-  lat       Float
-  lng       Float
-  radiusKm  Float    @map("radius_km")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  results SearchResult[]
-
-  @@map("searches")
-}
-
-model SearchResult {
-  id       String @id @default(cuid())
-  searchId String @map("search_id")
-  venueId  String @map("venue_id")
-  rank     Int
-
-  search Search @relation(fields: [searchId], references: [id])
-  venue  Venue  @relation(fields: [venueId], references: [id])
-
-  @@unique([searchId, venueId])
-  @@map("search_results")
-}
-
-model ChatSession {
-  id        String   @id @default(cuid())
-  searchId  String?  @map("search_id")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  messages ChatMessage[]
-
-  @@map("chat_sessions")
-}
-
-model ChatMessage {
-  id        String   @id @default(cuid())
-  sessionId String   @map("session_id")
-  role      String
-  content   String
-  createdAt DateTime @default(now()) @map("created_at")
-
-  session ChatSession @relation(fields: [sessionId], references: [id])
-
-  @@map("chat_messages")
 }

@@ -2,8 +2,8 @@
 
 An agentic-based system that specializes in finding typical and atypical wedding venues in a given region
 
-This project is an opportunity to practice building software with LLMs, like Claude Code and 
-Google's AI Studio.
+This project is an opportunity to practice building software with LLMs, 
+like Claude Code and Google's AI Studio.
 
 ## How does it work?
 

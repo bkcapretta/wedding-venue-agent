@@ -38,50 +38,34 @@ function ChatPageInner() {
     }
   }, [location, radiusKm, sendMessage]);
 
-  // Extract venues from tool results in messages.
-  // Within a single assistant message, tool results accumulate (supports
-  // the initial multi-query pattern like "wedding venues" + "event spaces").
-  // Across different assistant messages, the latest message's results replace
-  // the previous set — each refinement from the user triggers a fresh search.
+  // Extract venues from tool results. Within a message, tool results accumulate
+  // (supports multi-query). Across messages, the latest replaces the previous set.
   const venues = useMemo(() => {
     let venueMap = new Map<string, Venue>();
     let currentMsgId: string | null = null;
 
     for (const msg of messages) {
-      // Track whether this message has any venue tool results
-      let msgHasVenues = false;
-      const msgVenueMap = new Map<string, Venue>();
+      const msgVenues = new Map<string, Venue>();
 
       for (const part of msg.parts) {
         if (
-          typeof part.type === "string" &&
           part.type.startsWith("tool-") &&
-          "state" in part &&
-          (part.state === "output-available" || part.state === "done") &&
           "output" in part &&
           part.output &&
           typeof part.output === "object" &&
           "venues" in (part.output as Record<string, unknown>)
         ) {
-          msgHasVenues = true;
-          const result = part.output as { venues: Venue[] };
-          for (const venue of result.venues) {
-            msgVenueMap.set(venue.placeId, venue);
+          for (const venue of (part.output as { venues: Venue[] }).venues) {
+            msgVenues.set(venue.placeId, venue);
           }
         }
       }
 
-      if (msgHasVenues) {
-        if (msg.id !== currentMsgId) {
-          // New assistant message with venues → replace the set
-          venueMap = msgVenueMap;
-          currentMsgId = msg.id;
-        } else {
-          // Same message, additional tool call → accumulate
-          for (const [id, venue] of msgVenueMap) {
-            venueMap.set(id, venue);
-          }
-        }
+      if (msgVenues.size > 0) {
+        venueMap = msg.id === currentMsgId
+          ? new Map([...venueMap, ...msgVenues])
+          : msgVenues;
+        currentMsgId = msg.id;
       }
     }
 

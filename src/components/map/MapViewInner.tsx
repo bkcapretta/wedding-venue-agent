@@ -6,7 +6,6 @@ import L from "leaflet";
 import { Venue } from "@/lib/types";
 import "leaflet/dist/leaflet.css";
 
-// Fix default marker icons in Leaflet + webpack
 const defaultIcon = L.icon({
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
   iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -15,17 +14,6 @@ const defaultIcon = L.icon({
   iconAnchor: [12, 41],
   popupAnchor: [1, -34],
   shadowSize: [41, 41],
-});
-
-const selectedIcon = L.icon({
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-  iconSize: [30, 49],
-  iconAnchor: [15, 49],
-  popupAnchor: [1, -40],
-  shadowSize: [49, 49],
-  className: "selected-marker",
 });
 
 L.Marker.prototype.options.icon = defaultIcon;
@@ -71,7 +59,6 @@ export default function MapViewInner({
         <Marker
           key={venue.placeId}
           position={[venue.lat, venue.lng]}
-          icon={venue.placeId === selectedVenueId ? selectedIcon : defaultIcon}
           eventHandlers={{
             click: () => onSelectVenue(venue),
           }}

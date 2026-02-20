@@ -2,14 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { searchPlaces } from "@/lib/google-places";
 import { prisma } from "@/lib/prisma";
-import { Venue } from "@/lib/types";
-
-interface SearchContext {
-  lat: number;
-  lng: number;
-  radiusKm: number;
-  location: string;
-}
+import { Venue, SearchContext } from "@/lib/types";
 
 export function createTools(context?: SearchContext) {
   return {
@@ -18,10 +11,8 @@ export function createTools(context?: SearchContext) {
         "Search for wedding venues near a location using Google Places. This is the PRIMARY tool for refining results " +
         "based on user preferences. Google understands natural language queries, so include the user's specific desires " +
         "directly in the query. " +
-        'Examples: "wedding venues for 100 guests", "all-inclusive wedding venue", ' +
-        '"outdoor ceremony indoor reception venue", "affordable wedding venue under 10000", ' +
-        '"vineyard wedding with catering", "rooftop event space with views", ' +
-        '"intimate wedding venue 50 guests", "rustic barn wedding all inclusive".',
+        'Examples: "wedding venues for 100 guests", "outdoor ceremony indoor reception venue", ' +
+        '"vineyard wedding with catering", "rooftop event space with views".',
       inputSchema: z.object({
         query: z.string().describe("Search query for the type of venue to find"),
         radiusKm: z
@@ -42,41 +33,16 @@ export function createTools(context?: SearchContext) {
             radiusMeters: radius * 1000,
           });
 
-          // Upsert venues into the database
           for (const venue of venues) {
             await prisma.venue.upsert({
               where: { placeId: venue.placeId },
-              update: {
-                name: venue.name,
-                address: venue.address,
-                lat: venue.lat,
-                lng: venue.lng,
-                rating: venue.rating,
-                priceLevel: venue.priceLevel,
-                phoneNumber: venue.phoneNumber,
-                website: venue.website,
-                photoRefs: venue.photoRefs,
-                types: venue.types,
-              },
-              create: {
-                placeId: venue.placeId,
-                name: venue.name,
-                address: venue.address,
-                lat: venue.lat,
-                lng: venue.lng,
-                rating: venue.rating,
-                priceLevel: venue.priceLevel,
-                phoneNumber: venue.phoneNumber,
-                website: venue.website,
-                photoRefs: venue.photoRefs,
-                types: venue.types,
-              },
+              update: venue,
+              create: venue,
             });
           }
 
           return { venues, count: venues.length };
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Search failed";
           return { venues: [], count: 0 };
         }
       },
@@ -117,44 +83,18 @@ export function createTools(context?: SearchContext) {
         try {
           const where: Record<string, unknown> = {};
 
-          if (minRating != null) {
-            where.rating = { gte: minRating };
-          }
-          if (maxPriceLevel != null) {
-            where.priceLevel = { lte: maxPriceLevel };
-          }
-          if (minCapacity != null) {
-            where.capacity = { gte: minCapacity };
-          }
+          if (minRating != null) where.rating = { gte: minRating };
+          if (maxPriceLevel != null) where.priceLevel = { lte: maxPriceLevel };
+          if (minCapacity != null) where.capacity = { gte: minCapacity };
           if (nameOrDescription) {
             where.OR = [
               { name: { contains: nameOrDescription, mode: "insensitive" } },
               { description: { contains: nameOrDescription, mode: "insensitive" } },
             ];
           }
-          if (venueTypes && venueTypes.length > 0) {
-            where.types = { hasSome: venueTypes };
-          }
+          if (venueTypes?.length) where.types = { hasSome: venueTypes };
 
-          const dbVenues = await prisma.venue.findMany({ where });
-
-          const venues: Venue[] = dbVenues.map((v) => ({
-            id: v.id,
-            placeId: v.placeId,
-            name: v.name,
-            address: v.address,
-            lat: v.lat,
-            lng: v.lng,
-            rating: v.rating,
-            priceLevel: v.priceLevel,
-            phoneNumber: v.phoneNumber,
-            website: v.website,
-            photoRefs: v.photoRefs,
-            types: v.types,
-            capacity: v.capacity,
-            description: v.description,
-          }));
-
+          const venues = await prisma.venue.findMany({ where }) as Venue[];
           return { venues, count: venues.length };
         } catch (error) {
           return { venues: [], count: 0 };
@@ -170,32 +110,11 @@ export function createTools(context?: SearchContext) {
       }),
       execute: async ({ venueId }): Promise<{ venue: Venue | null }> => {
         try {
-          const v = await prisma.venue.findFirst({
-            where: {
-              OR: [{ id: venueId }, { placeId: venueId }],
-            },
-          });
+          const venue = await prisma.venue.findFirst({
+            where: { OR: [{ id: venueId }, { placeId: venueId }] },
+          }) as Venue | null;
 
-          if (!v) return { venue: null };
-
-          return {
-            venue: {
-              id: v.id,
-              placeId: v.placeId,
-              name: v.name,
-              address: v.address,
-              lat: v.lat,
-              lng: v.lng,
-              rating: v.rating,
-              priceLevel: v.priceLevel,
-              phoneNumber: v.phoneNumber,
-              website: v.website,
-              photoRefs: v.photoRefs,
-              types: v.types,
-              capacity: v.capacity,
-              description: v.description,
-            },
-          };
+          return { venue };
         } catch {
           return { venue: null };
         }
