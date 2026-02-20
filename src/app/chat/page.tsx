@@ -12,18 +12,22 @@ function ChatPageInner() {
   const searchParams = useSearchParams();
   const lat = parseFloat(searchParams.get("lat") ?? "0");
   const lng = parseFloat(searchParams.get("lng") ?? "0");
-  const radiusKm = parseFloat(searchParams.get("radius") ?? "25");
+  const radius = parseFloat(searchParams.get("radius") ?? "25");
   const location = searchParams.get("location") ?? "";
 
   const hasSentInitial = useRef(false);
 
   const transportRef = useRef(
+    // whenever we need to talk to the AI, make an HTTP POST to /api/chat
     new DefaultChatTransport({
-      api: "/api/chat",
-      body: { searchContext: { lat, lng, radiusKm, location } },
+      api: "/api/chat", // where to send requests
+      body: { searchContext: { lat, lng, radius, location } }, // extra data sent w/ every request (e.g. for tools)
     })
   );
 
+  // messages: the full conversation history
+  // status: "idle" | "submitting" | "streaming"
+  // sendMessage: function to send a new message (takes { text: string })
   const { messages, status, sendMessage } = useChat({
     transport: transportRef.current,
   });
@@ -32,11 +36,12 @@ function ChatPageInner() {
   useEffect(() => {
     if (!hasSentInitial.current && location) {
       hasSentInitial.current = true;
+      // transport makes a `fetch` request under the hood
       sendMessage({
-        text: `I'm looking for wedding venues near ${location} within ${radiusKm} miles. Please search for wedding venues in this area.`,
+        text: `I'm looking for wedding venues near ${location} within ${radius} miles. Please search for wedding venues in this area.`,
       });
     }
-  }, [location, radiusKm, sendMessage]);
+  }, [location, radius, sendMessage]);
 
   // Extract venues from tool results. Within a message, tool results accumulate
   // (supports multi-query). Across messages, the latest replaces the previous set.

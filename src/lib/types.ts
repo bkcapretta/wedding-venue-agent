@@ -18,7 +18,7 @@ export interface Venue {
 export interface SearchContext {
   lat: number;
   lng: number;
-  radiusKm: number;
+  radius: number;
   location: string;
 }
 

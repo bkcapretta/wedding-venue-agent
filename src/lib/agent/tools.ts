@@ -4,6 +4,25 @@ import { searchPlaces } from "@/lib/google-places";
 import { prisma } from "@/lib/prisma";
 import { Venue, SearchContext } from "@/lib/types";
 
+const KM_PER_MILE = 1.60934;
+const KM_PER_DEG_LAT = 111.32;
+const MAX_VENUES = 20;
+
+/** Find cached venues within a bounding box approximation of the search radius. */
+async function findNearbyVenues(lat: number, lng: number, radiusKm: number): Promise<Venue[]> {
+  const dLat = radiusKm / KM_PER_DEG_LAT;
+  const dLng = radiusKm / (KM_PER_DEG_LAT * Math.cos(lat * (Math.PI / 180)));
+
+  return prisma.venue.findMany({
+    where: {
+      lat: { gte: lat - dLat, lte: lat + dLat },
+      lng: { gte: lng - dLng, lte: lng + dLng },
+    },
+    orderBy: { rating: "desc" },
+    take: MAX_VENUES,
+  }) as Promise<Venue[]>;
+}
+
 export function createTools(context?: SearchContext) {
   return {
     searchVenues: tool({
@@ -15,22 +34,31 @@ export function createTools(context?: SearchContext) {
         '"vineyard wedding with catering", "rooftop event space with views".',
       inputSchema: z.object({
         query: z.string().describe("Search query for the type of venue to find"),
-        radiusKm: z
+        radius: z
           .number()
           .optional()
-          .describe("Override the default search radius in kilometers"),
+          .describe("Default search radius in miles"),
       }),
-      execute: async ({ query, radiusKm }): Promise<{ venues: Venue[]; count: number }> => {
-        const radius = radiusKm ?? context?.radiusKm ?? 25;
+      execute: async ({ query, radius }): Promise<{ venues: Venue[]; count: number }> => {
+        const radiusMiles = radius ?? context?.radius ?? 25;
+        const radiusKm = radiusMiles * KM_PER_MILE;
         const lat = context?.lat ?? 0;
         const lng = context?.lng ?? 0;
 
         try {
+          // Check Postgres cache first — find venues within the search radius
+          const cached = await findNearbyVenues(lat, lng, radiusKm);
+
+          if (cached.length > 0) {
+            return { venues: cached, count: cached.length };
+          }
+
+          // Cache miss — call Google Places and store results
           const venues = await searchPlaces({
             query,
             lat,
             lng,
-            radiusMeters: radius * 1000,
+            radiusMeters: radiusKm * 1000,
           });
 
           for (const venue of venues) {
@@ -47,10 +75,10 @@ export function createTools(context?: SearchContext) {
         }
       },
     }),
-
     filterVenues: tool({
       description:
-        "Filter previously found venues by various criteria. Returns a filtered subset from the database.",
+        "Filter venues in the current search area by structured criteria. " +
+        "Use this to narrow down results without calling Google Places again.",
       inputSchema: z.object({
         minRating: z
           .number()
@@ -81,20 +109,30 @@ export function createTools(context?: SearchContext) {
         nameOrDescription,
       }): Promise<{ venues: Venue[]; count: number }> => {
         try {
-          const where: Record<string, unknown> = {};
+          const radiusKm = (context?.radius ?? 25) * KM_PER_MILE;
+          const lat = context?.lat ?? 0;
+          const lng = context?.lng ?? 0;
 
-          if (minRating != null) where.rating = { gte: minRating };
-          if (maxPriceLevel != null) where.priceLevel = { lte: maxPriceLevel };
-          if (minCapacity != null) where.capacity = { gte: minCapacity };
-          if (nameOrDescription) {
-            where.OR = [
-              { name: { contains: nameOrDescription, mode: "insensitive" } },
-              { description: { contains: nameOrDescription, mode: "insensitive" } },
-            ];
+          // Start with venues in the current search area
+          let venues = await findNearbyVenues(lat, lng, radiusKm);
+
+          // Apply structured filters in-memory (null = unknown, so keep the venue)
+          if (minRating != null) venues = venues.filter((v) => v.rating == null || v.rating >= minRating);
+          if (maxPriceLevel != null) venues = venues.filter((v) => v.priceLevel == null || v.priceLevel <= maxPriceLevel);
+          if (minCapacity != null) venues = venues.filter((v) => v.capacity == null || v.capacity >= minCapacity);
+          if (venueTypes?.length) {
+            venues = venues.filter((v) =>
+              venueTypes.some((t) => v.types.some((vt) => vt.toLowerCase().includes(t.toLowerCase())))
+            );
           }
-          if (venueTypes?.length) where.types = { hasSome: venueTypes };
+          if (nameOrDescription) {
+            const term = nameOrDescription.toLowerCase();
+            venues = venues.filter((v) =>
+              v.name.toLowerCase().includes(term) ||
+              (v.description?.toLowerCase().includes(term) ?? false)
+            );
+          }
 
-          const venues = await prisma.venue.findMany({ where }) as Venue[];
           return { venues, count: venues.length };
         } catch (error) {
           return { venues: [], count: 0 };
